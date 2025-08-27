@@ -27,6 +27,9 @@ on:
         default: ''
         type: string
 
+permissions:
+  issues: write
+
 jobs:
   remove-rca-labels:
     name: Remove RCA-needed Labels
