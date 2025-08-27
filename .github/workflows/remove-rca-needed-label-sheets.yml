@@ -29,6 +29,7 @@ on:
 
 permissions:
   issues: write
+  contents: read
 
 jobs:
   remove-rca-labels:
