@@ -35,13 +35,11 @@ jobs:
   remove-rca-labels:
     name: Remove RCA-needed Labels
     # TODO: Change back to @main after github-tools PR is merged
-    uses: MetaMask/github-tools/.github/workflows/remove-rca-needed-label-sheets.yml@feat(INFRA-2864)/rca-needed-label-removal
+    uses: MetaMask/github-tools/.github/workflows/remove-rca-needed-label-sheets.yml@d354252842b91355deb6d57c752812f745f99679
     with:
       dry_run: ${{ github.event.inputs.dry_run || 'false' }}
       spreadsheet_id: ${{ github.event.inputs.spreadsheet_id || '1Y16QEnDwZuR3DAQIe3T5LTWy1ye07GNYqxIei_cMg24' }}
       sheet_name: ${{ github.event.inputs.sheet_name || 'Form Responses 1' }}
-      # TODO: Remove this line after github-tools PR is merged
-      github-tools-version: feat(INFRA-2864)/rca-needed-label-removal
     secrets:
       github-token: ${{ secrets.GITHUB_TOKEN }}
       google-application-creds-base64: ${{ secrets.GCP_RLS_SHEET_ACCOUNT_BASE64 }}
