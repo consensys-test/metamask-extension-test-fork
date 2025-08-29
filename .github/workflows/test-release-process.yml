@@ -73,7 +73,7 @@ jobs:
           echo "branch=${BRANCH_NAME}" >> "$GITHUB_OUTPUT"
           echo "✅ Created test release branch: ${BRANCH_NAME}"
 
-      - name: Create test PR
+            - name: Create test PR
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -86,6 +86,10 @@ jobs:
             TARGET_BRANCH="master"
           fi
 
+          # Try to create the test-release label first (ignore if it fails)
+          gh label create "test-release" --description "Test release PR" --color "0e8a16" 2>/dev/null || true
+
+          # Create PR without label first
           PR_URL=$(gh pr create \
             --title "🧪 Test Release PR: v${VERSION}" \
             --body "## Test Release PR
@@ -110,8 +114,11 @@ jobs:
             - Version: v${VERSION}
             - Target: ${TARGET_BRANCH}" \
             --base "${TARGET_BRANCH}" \
-            --head "${BRANCH_NAME}" \
-            --label "test-release")
+            --head "${BRANCH_NAME}")
+
+          # Try to add label after PR is created (ignore if it fails)
+          PR_NUMBER=$(echo "${PR_URL}" | grep -oE '[0-9]+$')
+          gh pr edit "${PR_NUMBER}" --add-label "test-release" 2>/dev/null || echo "Note: Could not add test-release label (not critical)"
 
           echo "Created test PR: ${PR_URL}"
           echo "" >> "$GITHUB_STEP_SUMMARY"

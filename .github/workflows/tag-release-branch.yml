@@ -153,10 +153,11 @@ jobs:
               - [ ] Ready to merge to ${TARGET_BRANCH}
               - [ ] Verify tag in target branch after merge"
 
-            echo "Updated PR #${EXISTING_PR} with tag information"
+                        echo "Updated PR #${EXISTING_PR} with tag information"
 
-            # Add label if possible
-            gh pr edit "${EXISTING_PR}" --add-label "release-tagged" 2>/dev/null || true
+            # Try to create label first, then add it (ignore failures)
+            gh label create "release-tagged" --description "Release has been tagged" --color "0e8a16" 2>/dev/null || true
+            gh pr edit "${EXISTING_PR}" --add-label "release-tagged" 2>/dev/null || echo "Note: Could not add release-tagged label (not critical)"
           else
             # Create new PR
             PR_URL=$(gh pr create \
@@ -190,11 +191,20 @@ jobs:
               - [ ] Ready to merge to ${TARGET_BRANCH}
               - [ ] Verify tag in target branch after merge" \
               --base "${TARGET_BRANCH}" \
-              --head "${RELEASE_BRANCH}" \
-              --label "test-release,release-${VERSION}")
+              --head "${RELEASE_BRANCH}")
+
+            # Try to create and add labels (ignore failures)
+            gh label create "test-release" --description "Test release PR" --color "0e8a16" 2>/dev/null || true
+            gh label create "release-${VERSION}" --description "Release version ${VERSION}" --color "d73a4a" 2>/dev/null || true
+            gh label create "release-tagged" --description "Release has been tagged" --color "0e8a16" 2>/dev/null || true
 
             PR_NUMBER=$(echo "${PR_URL}" | grep -oE '[0-9]+$')
             echo "Created PR #${PR_NUMBER}"
+
+            # Try to add labels to the new PR (ignore failures)
+            gh pr edit "${PR_NUMBER}" --add-label "test-release" 2>/dev/null || true
+            gh pr edit "${PR_NUMBER}" --add-label "release-${VERSION}" 2>/dev/null || true
+            gh pr edit "${PR_NUMBER}" --add-label "release-tagged" 2>/dev/null || echo "Note: Could not add all labels (not critical)"
           fi
 
       - name: Summary

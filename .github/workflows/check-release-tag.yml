@@ -171,46 +171,92 @@ jobs:
 
             const labels = context.payload.pull_request.labels.map(l => l.name);
 
-            if (tagExists === 'true' && atHead === 'true') {
-              // Add release-tagged label if not present
-              if (!labels.includes('release-tagged')) {
-                await github.rest.issues.addLabels({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: context.issue.number,
-                  labels: ['release-tagged']
-                });
-              }
+                        try {
+              if (tagExists === 'true' && atHead === 'true') {
+                // Try to create and add release-tagged label
+                if (!labels.includes('release-tagged')) {
+                  try {
+                    // Try to create the label first
+                    await github.rest.issues.createLabel({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      name: 'release-tagged',
+                      description: 'Release has been tagged',
+                      color: '0e8a16'
+                    });
+                  } catch (e) {
+                    // Label might already exist, continue
+                  }
 
-              // Remove needs-tag label if present
-              if (labels.includes('needs-tag')) {
-                await github.rest.issues.removeLabel({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: context.issue.number,
-                  name: 'needs-tag'
-                });
-              }
-            } else {
-              // Add needs-tag label if not present
-              if (!labels.includes('needs-tag')) {
-                await github.rest.issues.addLabels({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: context.issue.number,
-                  labels: ['needs-tag']
-                });
-              }
+                  try {
+                    await github.rest.issues.addLabels({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      issue_number: context.issue.number,
+                      labels: ['release-tagged']
+                    });
+                  } catch (e) {
+                    console.log('Could not add release-tagged label (not critical)');
+                  }
+                }
 
-              // Remove release-tagged label if present
-              if (labels.includes('release-tagged')) {
-                await github.rest.issues.removeLabel({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: context.issue.number,
-                  name: 'release-tagged'
-                });
+                // Try to remove needs-tag label if present
+                if (labels.includes('needs-tag')) {
+                  try {
+                    await github.rest.issues.removeLabel({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      issue_number: context.issue.number,
+                      name: 'needs-tag'
+                    });
+                  } catch (e) {
+                    console.log('Could not remove needs-tag label');
+                  }
+                }
+              } else {
+                // Try to create and add needs-tag label
+                if (!labels.includes('needs-tag')) {
+                  try {
+                    // Try to create the label first
+                    await github.rest.issues.createLabel({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      name: 'needs-tag',
+                      description: 'Release needs to be tagged',
+                      color: 'fbca04'
+                    });
+                  } catch (e) {
+                    // Label might already exist, continue
+                  }
+
+                  try {
+                    await github.rest.issues.addLabels({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      issue_number: context.issue.number,
+                      labels: ['needs-tag']
+                    });
+                  } catch (e) {
+                    console.log('Could not add needs-tag label (not critical)');
+                  }
+                }
+
+                // Try to remove release-tagged label if present
+                if (labels.includes('release-tagged')) {
+                  try {
+                    await github.rest.issues.removeLabel({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      issue_number: context.issue.number,
+                      name: 'release-tagged'
+                    });
+                  } catch (e) {
+                    console.log('Could not remove release-tagged label');
+                  }
+                }
               }
+            } catch (error) {
+              console.log('Label management failed (not critical):', error.message);
             }
 
       - name: Summary
