@@ -73,7 +73,7 @@ jobs:
           echo "branch=${BRANCH_NAME}" >> "$GITHUB_OUTPUT"
           echo "✅ Created test release branch: ${BRANCH_NAME}"
 
-            - name: Create test PR
+      - name: Create test PR
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
