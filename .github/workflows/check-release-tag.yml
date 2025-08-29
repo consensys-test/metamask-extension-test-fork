@@ -1,0 +1,249 @@
+name: Check Release Tag (Fork Test)
+
+on:
+  pull_request:
+    branches:
+      - main
+      - master
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - labeled
+      - unlabeled
+
+jobs:
+  check-release-tag:
+    name: Verify Release Tag
+    # Only run on release PRs from Version-v* or release/* branches
+    if: |
+      (startsWith(github.head_ref, 'Version-v') || startsWith(github.head_ref, 'release/')) &&
+      (github.base_ref == 'main' || github.base_ref == 'master')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.head_ref }}
+
+      - name: Extract version from branch name
+        id: extract-version
+        run: |
+          BRANCH="${{ github.head_ref }}"
+          if [[ "${BRANCH}" =~ ^Version-v([0-9]+\.[0-9]+\.[0-9]+)$ ]] || [[ "${BRANCH}" =~ ^release/([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            VERSION="${BASH_REMATCH[1]}"
+            echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+            echo "Found version: ${VERSION}"
+          else
+            echo "::warning::Could not extract version from branch name: ${BRANCH}"
+            exit 0
+          fi
+
+      - name: Check if tag exists
+        id: check-tag
+        run: |
+          VERSION="${{ steps.extract-version.outputs.version }}"
+          if [[ -z "${VERSION}" ]]; then
+            echo "No version found, skipping tag check"
+            echo "exists=unknown" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          TAG="v${VERSION}"
+
+          # Fetch all tags
+          git fetch --tags origin
+
+          # Check if tag exists
+          if git rev-parse "${TAG}" >/dev/null 2>&1; then
+            echo "✅ Tag ${TAG} exists"
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+            # Get tag SHA
+            TAG_SHA=$(git rev-parse "${TAG}")
+            echo "tag-sha=${TAG_SHA}" >> "$GITHUB_OUTPUT"
+
+            # Check if tag is on the release branch
+            BRANCH_HEAD=$(git rev-parse HEAD)
+            if [[ "${TAG_SHA}" == "${BRANCH_HEAD}" ]]; then
+              echo "✅ Tag is at release branch HEAD"
+              echo "at-head=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "⚠️  Tag exists but is not at branch HEAD"
+              echo "at-head=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "❌ Tag ${TAG} does not exist"
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set status check
+        if: steps.extract-version.outputs.version
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const tagExists = '${{ steps.check-tag.outputs.exists }}';
+            const tag = '${{ steps.check-tag.outputs.tag }}';
+            const atHead = '${{ steps.check-tag.outputs.at-head }}';
+
+            let state, description;
+
+            if (tagExists === 'true' && atHead === 'true') {
+              state = 'success';
+              description = `✅ Release ${tag} is properly tagged`;
+            } else if (tagExists === 'true' && atHead === 'false') {
+              state = 'pending';
+              description = `⚠️ Tag ${tag} exists but not at branch HEAD`;
+            } else {
+              state = 'pending';
+              description = `⚠️ Release ${tag} needs to be tagged before merge`;
+            }
+
+            // Create status check
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: context.payload.pull_request.head.sha,
+              state: state,
+              description: description,
+              context: 'release/tag-check'
+            });
+
+      - name: Comment on PR
+        if: steps.extract-version.outputs.version && steps.check-tag.outputs.exists != 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const tag = '${{ steps.check-tag.outputs.tag }}';
+            const version = '${{ steps.extract-version.outputs.version }}';
+
+            const comment = `## ⚠️ Release Tag Required
+
+            This release PR needs to be tagged before merging.
+
+            ### 📋 Required Action
+
+            Run the **Tag Release Branch** workflow:
+            1. Go to [Actions → Tag Release Branch](../../actions/workflows/tag-release-branch.yml)
+            2. Click "Run workflow"
+            3. Enter version: \`${version}\`
+            4. Select target branch: \`${{ github.base_ref }}\`
+            5. Run the workflow
+
+            ### 🔍 Why is this needed?
+
+            This ensures the release tag points to the exact code that was tested, not the merge commit.
+
+            ---
+            *This is a test check for the fork release process.*`;
+
+            // Check for existing comment
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number
+            });
+
+            const botComment = comments.find(comment =>
+              comment.body.includes('Release Tag Required') &&
+              comment.user.type === 'Bot'
+            );
+
+            if (!botComment) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: comment
+              });
+            }
+
+      - name: Add/Remove labels
+        if: steps.extract-version.outputs.version
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const tagExists = '${{ steps.check-tag.outputs.exists }}';
+            const atHead = '${{ steps.check-tag.outputs.at-head }}';
+
+            const labels = context.payload.pull_request.labels.map(l => l.name);
+
+            if (tagExists === 'true' && atHead === 'true') {
+              // Add release-tagged label if not present
+              if (!labels.includes('release-tagged')) {
+                await github.rest.issues.addLabels({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  labels: ['release-tagged']
+                });
+              }
+
+              // Remove needs-tag label if present
+              if (labels.includes('needs-tag')) {
+                await github.rest.issues.removeLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  name: 'needs-tag'
+                });
+              }
+            } else {
+              // Add needs-tag label if not present
+              if (!labels.includes('needs-tag')) {
+                await github.rest.issues.addLabels({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  labels: ['needs-tag']
+                });
+              }
+
+              // Remove release-tagged label if present
+              if (labels.includes('release-tagged')) {
+                await github.rest.issues.removeLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  name: 'release-tagged'
+                });
+              }
+            }
+
+      - name: Summary
+        if: steps.extract-version.outputs.version
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" << EOF
+          # 🧪 Fork Test - Release Tag Check
+
+          **Branch**: ${{ github.head_ref }}
+          **Target**: ${{ github.base_ref }}
+          **Version**: ${{ steps.extract-version.outputs.version }}
+
+          ## Status
+          EOF
+
+          if [[ "${{ steps.check-tag.outputs.exists }}" == "true" ]]; then
+            if [[ "${{ steps.check-tag.outputs.at-head }}" == "true" ]]; then
+              echo "✅ **Release is properly tagged**" >> "$GITHUB_STEP_SUMMARY"
+              echo "" >> "$GITHUB_STEP_SUMMARY"
+              echo "- Tag: ${{ steps.check-tag.outputs.tag }}" >> "$GITHUB_STEP_SUMMARY"
+              echo "- SHA: ${{ steps.check-tag.outputs.tag-sha }}" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "⚠️  **Tag exists but not at branch HEAD**" >> "$GITHUB_STEP_SUMMARY"
+              echo "" >> "$GITHUB_STEP_SUMMARY"
+              echo "- Tag: ${{ steps.check-tag.outputs.tag }}" >> "$GITHUB_STEP_SUMMARY"
+              echo "- Tag SHA: ${{ steps.check-tag.outputs.tag-sha }}" >> "$GITHUB_STEP_SUMMARY"
+              echo "" >> "$GITHUB_STEP_SUMMARY"
+              echo "Please re-run the Tag Release Branch workflow to update the tag." >> "$GITHUB_STEP_SUMMARY"
+            fi
+          else
+            echo "❌ **Release needs to be tagged**" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "Expected tag: ${{ steps.check-tag.outputs.tag }}" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "Please run the Tag Release Branch workflow before merging." >> "$GITHUB_STEP_SUMMARY"
+          fi
